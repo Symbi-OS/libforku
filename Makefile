@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-O0 -ggdb -Wall -Wextra -mno-red-zone
+CFLAGS=-O0 -g -Wall -Wextra -mno-red-zone
 
 SYMLIB_DIR=../Symlib
 SYMLIB_DYNAM_BUILD_DIR=$(SYMLIB_DIR)/dynam_build
