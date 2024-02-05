@@ -34,4 +34,5 @@ else
     echo "------------------------------------------------"
     printf "           ${RED}Test failed. Exit code: $EXIT_CODE${NC}\n"
     echo "------------------------------------------------"
+    exit $EXIT_CODE
 fi
