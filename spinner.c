@@ -2,46 +2,64 @@
 #include <stdio.h> 
 #include <signal.h> 
 #include <assert.h>
+#include <unistd.h>
 
-//#define MEM_ALLOC_TEST_BEFORE
-#define MEM_ALLOC_TEST_AFTER
-
-extern char __libc_single_threaded;
+#define TEST_MALLOC_SIZE 1024 * 1024ULL
 
 volatile int g_signaled = 0;
+unsigned int freeptr = 0;
 
 void handle_sig(int sig)  {
     (void)sig; 
     g_signaled = 1;
-} 
+}
+
+char buf[1024 * 1024 * 8ULL];
+
+void* my_malloc(size_t n) {
+    void *rtn = &buf[freeptr];
+    freeptr += n;
+    return rtn;
+}
 
 int main() {
-#ifdef MEM_ALLOC_TEST_BEFORE
-    char* m = (char*)malloc(1024ULL * 1024ULL * 1024ULL); // 1 MB
-#endif
+    /* 
+     * If you pre-allocate the array without touching pages immediately, but
+     * touch the pages after a signal is received, the program appears to be
+     * working in a stable way.
+     */
+    char* m = (char*)malloc(TEST_MALLOC_SIZE);
 
-    signal(SIGUSR1, handle_sig); 
+    signal(SIGUSR1, handle_sig);
 
-    size_t i = 0;
     while (1) {
-        ++i;
-        asm volatile ("nop");
+        asm volatile("nop");
 
-        if (i > 10000000000ULL) {
-            //printf("tick!\n");
-            i = 0;
-        }
-
-        if (g_signaled == 1) {
-            //printf("Signaled!\n");
+        if (g_signaled) {
             g_signaled = 0;
 
-#ifdef MEM_ALLOC_TEST_AFTER
-            char* m = (char*)malloc(1024ULL * 1024ULL * 1024ULL); // 1 MB
-#endif
+            /*  WORKS  */
+            // buf[sizeof(buf) - 1] = 0xff;
 
-            for (size_t i = 0; i < 1024 * 1024; i += 4096) {
-                m[i] = (char)i;
+            /*  WORKS  */
+            // for (size_t i = 0; i < sizeof(buf) - 1; ++i) {
+            //     buf[i] = 0xff;
+            // }
+
+            /*  WORKS  */
+            // char* m = (char*)my_malloc(TEST_MALLOC_SIZE);
+            // for (size_t i = 0; i < TEST_MALLOC_SIZE - 1; ++i) {
+            //     m[i] = 0xff;
+            // }
+
+            /*  WORKS (only if signal is sent before forku call) */
+            //write(1, "Test\n", 5);
+
+            /*  DOESN'T WORK  */
+            /*  Suspicion: %fs relative addressing is the problem   */
+            // char* m = (char*)malloc(TEST_MALLOC_SIZE);
+            for (size_t i = 0; i < TEST_MALLOC_SIZE - 1; ++i) {
+                m[i] = 0xff;
             }
         }
     }
