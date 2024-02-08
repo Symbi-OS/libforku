@@ -1129,6 +1129,7 @@ struct task_struct* forku_task(struct task_struct* target_task) {
     struct task_struct*  forked_task;
     int test_pid;
     unsigned long child_tid_ptr;
+	//unsigned long target_fsbase;
     struct kernel_clone_args args = {
         .flags      = 0x1200000,
         .pidfd      = NULL, // if you want a pidfd, you need to allocate it
@@ -1137,8 +1138,11 @@ struct task_struct* forku_task(struct task_struct* target_task) {
         .exit_signal = SIGCHLD,
     };
 
-    asm volatile("mov %%fs:0x0, %0" : "=r"(child_tid_ptr));
-    child_tid_ptr += 0x2d0;
+	child_tid_ptr = target_task->thread.fsbase;
+	child_tid_ptr += 0x2d0;
+
+    // asm volatile("mov %%fs:0x0, %0" : "=r"(child_tid_ptr));
+    // child_tid_ptr += 0x2d0;
     args.child_tid  = (int*)child_tid_ptr;
 
     printk("ctid: 0x%lx\n", child_tid_ptr);
