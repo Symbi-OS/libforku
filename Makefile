@@ -28,7 +28,7 @@ forku_util: forku_util.c libforku.a
 	$(CC) $(CFLAGS) -I$(SYMLIB_INCLUDE_DIR) $^ -o $@ $(KERNEL_LINK) $(FORKU_LINK) $(SYMLIB_LINK)
 
 malloc_spinner: spinner.c
-	$(CC) -static $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $^ -o $@
 
 clean:
 	rm -rf *.o *.so *.s .*.d *.a core.* malloc_spinner forku_util my_malloc_spinner pig
