@@ -87,7 +87,8 @@ struct task_struct* forku_task(struct task_struct* target_task) {
 
     impersonated_pid = current->pid;
     forked_task = copy_process(NULL, 0, NUMA_NO_NODE, &args);
-	
+
+    // Swap the current task back to the original task of the forku_util process
     this_cpu_write(current_task, original_task);
     if (!static_branch_likely(&switch_to_cond_stibp)) {
       asm volatile("nop");
