@@ -48,17 +48,6 @@ int* read_tid_ptr(struct task_struct* task) {
   return tid_ptr;
 }
 
-void swap_current_task(struct task_struct* task) {
-  this_cpu_write(current_task, task);
-
-  // The following if statement makes the CPU do something that appears like
-  // a flush of hidden segment register caches and necessary in order to
-  // update the current task in the per-cpu data structure.
-  if (!static_branch_likely(&switch_to_cond_stibp)) {
-      asm volatile("nop");
-  }
-}
-
 #pragma GCC diagnostic error "-Wdeclaration-after-statement"
 struct task_struct* forku_task(struct task_struct* target_task) {
     /*
@@ -85,13 +74,25 @@ struct task_struct* forku_task(struct task_struct* target_task) {
     original_task = current;
     printk("current->pid      : %i\n", current->pid);
 
-    swap_current_task(target_task);
+    // Impersonate the target task, for some reason abstracting this
+    // away into its own function causes it to not work anymore.
+    this_cpu_write(current_task, target_task);
+
+    // The following if statement makes the CPU do something that appears like
+    // a flush of hidden segment register caches and necessary in order to
+    // update the current task in the per-cpu data structure.
+    if (!static_branch_likely(&switch_to_cond_stibp)) {
+      asm volatile("nop");
+    }
 
     impersonated_pid = current->pid;
     forked_task = copy_process(NULL, 0, NUMA_NO_NODE, &args);
 	
-    swap_current_task(original_task);
-
+    this_cpu_write(current_task, original_task);
+    if (!static_branch_likely(&switch_to_cond_stibp)) {
+      asm volatile("nop");
+    }
+    
     printk("forked_task       : 0x%llx\n", (uint64_t)forked_task);
     printk("impersonated pid  : %i\n", impersonated_pid);
     printk("current->pid      : %i\n", current->pid);
