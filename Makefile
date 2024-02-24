@@ -1,4 +1,5 @@
 CC=gcc
+CXX=g++
 CFLAGS=-O0 -g -Wall -Wextra -mno-red-zone -m64
 
 SYMLIB_DIR=../Symlib
@@ -12,6 +13,8 @@ FORKU_LINK=-L./ -lforku
 LINUX_PATH=~/Symbi-OS/linux
 obj-m += forku.o
 
+FORKU_SRCS = forku_util.cpp snapshotter.cpp json11.cpp
+
 all: libforku.a forku_util malloc_spinner
 
 libkernel.a: mklibkernel.sh
@@ -24,8 +27,8 @@ forku.o: forku.c
 libforku.a: libkernel.a forku.o
 	ar rcs $@ forku.o
 
-forku_util: forku_util.c libforku.a
-	$(CC) $(CFLAGS) -I$(SYMLIB_INCLUDE_DIR) $^ -o $@ $(KERNEL_LINK) $(FORKU_LINK) $(SYMLIB_LINK)
+forku_util: $(FORKU_SRCS) libforku.a
+	$(CXX) $(CFLAGS) -I$(SYMLIB_INCLUDE_DIR) $^ -o $@ $(KERNEL_LINK) $(FORKU_LINK) $(SYMLIB_LINK)
 
 malloc_spinner: spinner.c
 	$(CC) $(CFLAGS) $^ -o $@
