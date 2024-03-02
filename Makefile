@@ -8,11 +8,12 @@ SYMLIB_LINK=-L $(SYMLIB_DYNAM_BUILD_DIR) -lSym
 
 KERNEL_LINK=-L ./ -lkernel
 FORKU_LINK=-L./ -lforku
+SNAPSHOT_LINK=-L./ -lsnapshot
 
 LINUX_PATH=~/Symbi-OS/linux
 obj-m += forku.o
 
-all: libforku.a forku_util malloc_spinner
+all: libforku.a libsnapshot.a forku_util malloc_spinner
 
 libkernel.a: mklibkernel.sh
 	./mklibkernel.sh
@@ -24,11 +25,17 @@ forku.o: forku.c
 libforku.a: libkernel.a forku.o
 	ar rcs $@ forku.o
 
-forku_util: forku_util.c libforku.a
-	$(CC) $(CFLAGS) -I$(SYMLIB_INCLUDE_DIR) $^ -o $@ $(KERNEL_LINK) $(FORKU_LINK) $(SYMLIB_LINK)
+snapshot.o: libkernel.a libforku.a snapshot.c
+	$(CC) $(CFLAGS) -I$(SYMLIB_INCLUDE_DIR) -c snapshot.c -o $@ $(KERNEL_LINK) $(FORKU_LINK) $(SYMLIB_LINK)
+
+libsnapshot.a: snapshot.o
+	ar rcs $@ $^
+
+forku_util: forku_util.c libforku.a libsnapshot.a
+	$(CC) $(CFLAGS) -I$(SYMLIB_INCLUDE_DIR) $^ -o $@ $(KERNEL_LINK) $(FORKU_LINK) $(SNAPSHOT_LINK) $(SYMLIB_LINK)
 
 malloc_spinner: spinner.c
 	$(CC) $(CFLAGS) $^ -o $@
 
 clean:
-	rm -rf *.o *.so *.s .*.d *.a core.* malloc_spinner forku_util my_malloc_spinner pig
+	rm -rf *.o *.so *.s .*.d *.a core.* malloc_spinner forku_util
