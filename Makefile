@@ -10,10 +10,12 @@ KERNEL_LINK=-L ./ -lkernel
 FORKU_LINK=-L./ -lforku
 SNAPSHOT_LINK=-L./ -lsnapshot
 
+FUSE_FLAGS=`pkg-config fuse --cflags --libs`
+
 LINUX_PATH=~/Symbi-OS/linux
 obj-m += forku.o
 
-all: libforku.a libsnapshot.a forku_util malloc_spinner
+all: libforku.a libsnapshot.a forku_util forku_monitord malloc_spinner
 
 libkernel.a: mklibkernel.sh
 	./mklibkernel.sh
@@ -37,5 +39,8 @@ forku_util: forku_util.c libforku.a libsnapshot.a
 malloc_spinner: spinner.c
 	$(CC) $(CFLAGS) $^ -o $@
 
+forku_monitord: forku_monitord.c libforku.a libsnapshot.a
+	$(CC) $(CFLAGS) $(FUSE_FLAGS) -I$(SYMLIB_INCLUDE_DIR) $^ -o $@ $(KERNEL_LINK) $(FORKU_LINK) $(SNAPSHOT_LINK) $(SYMLIB_LINK)
+
 clean:
-	rm -rf *.o *.so *.s .*.d *.a core.* malloc_spinner forku_util
+	rm -rf *.o *.so *.s .*.d *.a core.* malloc_spinner forku_util forku_monitord
