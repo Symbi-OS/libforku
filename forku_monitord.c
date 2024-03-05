@@ -9,8 +9,6 @@
 #include <stdlib.h>
 #include <errno.h>
 
-// ... //
-
 char dir_list[ 256 ][ 256 ];
 int curr_dir_idx = -1;
 
@@ -20,156 +18,117 @@ int curr_file_idx = -1;
 char files_content[ 256 ][ 256 ];
 int curr_file_content_idx = -1;
 
-void add_dir( const char *dir_name )
-{
-	curr_dir_idx++;
-	strcpy( dir_list[ curr_dir_idx ], dir_name );
+int sample_pids[5] = { 4554, 7242, 6592, 10325, 32554 };
+
+void add_dir(const char *dir_name) {
+  printf("Request to add directory: %s\n", dir_name);
 }
 
-int is_dir( const char *path )
-{
-	path++; // Eliminating "/" in the path
-	
-	for ( int curr_idx = 0; curr_idx <= curr_dir_idx; curr_idx++ )
-		if ( strcmp( path, dir_list[ curr_idx ] ) == 0 )
-			return 1;
-	
-	return 0;
+int is_dir(const char *path) {
+  (void)path; // Mark unused parameter
+  printf("Checking if a path is a directory\n");
+  return 0; // Assuming not a directory for simplicity
 }
 
-void add_file( const char *filename )
-{
-	curr_file_idx++;
-	strcpy( files_list[ curr_file_idx ], filename );
-	
-	curr_file_content_idx++;
-	strcpy( files_content[ curr_file_content_idx ], "" );
+void add_file(const char *filename) {
+  printf("Request to add file: %s\n", filename);
 }
 
-int is_file( const char *path )
-{
-	path++; // Eliminating "/" in the path
-	
-	for ( int curr_idx = 0; curr_idx <= curr_file_idx; curr_idx++ )
-		if ( strcmp( path, files_list[ curr_idx ] ) == 0 )
-			return 1;
-	
-	return 0;
+int is_file(const char *path) {
+  (void)path; // Mark unused parameter
+  printf("Checking if a path is a file\n");
+  return 0; // Assuming not a file for simplicity
 }
 
-int get_file_index( const char *path )
-{
-	path++; // Eliminating "/" in the path
-	
-	for ( int curr_idx = 0; curr_idx <= curr_file_idx; curr_idx++ )
-		if ( strcmp( path, files_list[ curr_idx ] ) == 0 )
-			return curr_idx;
-	
-	return -1;
+void write_to_file(const char *path, const char *new_content) {
+  printf("Request to write to file: %s, Content: %s\n", path, new_content);
 }
 
-void write_to_file( const char *path, const char *new_content )
-{
-	int file_idx = get_file_index( path );
-	
-	if ( file_idx == -1 ) // No such file
-		return;
-		
-	strcpy( files_content[ file_idx ], new_content ); 
+static int do_getattr(const char *path, struct stat *st) {
+  memset(st, 0, sizeof(struct stat));
+  if (strcmp(path, "/") == 0) {
+    st->st_mode = S_IFDIR | 0555;
+    st->st_nlink = 2; // Standard for directories
+  } else {
+    // Check if the path corresponds to one of the PID-based directories
+    int pid = atoi(path + 1); // Convert the path to an integer, skipping the leading '/'
+    if (pid > 0) {
+      st->st_mode = S_IFDIR | 0555;
+      st->st_nlink = 2; // Standard for directories
+    } else {
+      return -ENOENT;
+    }
+  }
+  return 0;
 }
 
-// ... //
+static int do_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
+  (void)offset; // Unused parameter
+  (void)fi; // Unused parameter
 
-static int do_getattr( const char *path, struct stat *st )
-{
-	st->st_uid = getuid(); // The owner of the file/directory is the user who mounted the filesystem
-	st->st_gid = getgid(); // The group of the file/directory is the same as the group of the user who mounted the filesystem
-	st->st_atime = time( NULL ); // The last "a"ccess of the file/directory is right now
-	st->st_mtime = time( NULL ); // The last "m"odification of the file/directory is right now
-	
-	if ( strcmp( path, "/" ) == 0 || is_dir( path ) == 1 )
-	{
-		st->st_mode = S_IFDIR | 0755;
-		st->st_nlink = 2; // Why "two" hardlinks instead of "one"? The answer is here: http://unix.stackexchange.com/a/101536
-	}
-	else if ( is_file( path ) == 1 )
-	{
-		st->st_mode = S_IFREG | 0644;
-		st->st_nlink = 1;
-		st->st_size = 1024;
-	}
-	else
-	{
-		return -ENOENT;
-	}
-	
-	return 0;
+  if (strcmp(path, "/") == 0) {
+    filler(buffer, ".", NULL, 0);
+    filler(buffer, "..", NULL, 0);
+
+    char dir_name[64] = { 0 };
+    size_t entries = sizeof(sample_pids) / sizeof(sample_pids[0]);
+    for(size_t i = 0; i < entries; ++i) {
+      sprintf(dir_name, "%d", sample_pids[i]);
+      filler(buffer, dir_name, NULL, 0);
+    }
+  } else {
+    // Handle other directories if your filesystem supports them
+    return -ENOENT;
+  }
+
+  return 0; // Successy
 }
 
-static int do_readdir( const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi )
-{
-	filler( buffer, ".", NULL, 0 ); // Current Directory
-	filler( buffer, "..", NULL, 0 ); // Parent Directory
-	
-	if ( strcmp( path, "/" ) == 0 ) // If the user is trying to show the files/directories of the root directory show the following
-	{
-		for ( int curr_idx = 0; curr_idx <= curr_dir_idx; curr_idx++ )
-			filler( buffer, dir_list[ curr_idx ], NULL, 0 );
-	
-		for ( int curr_idx = 0; curr_idx <= curr_file_idx; curr_idx++ )
-			filler( buffer, files_list[ curr_idx ], NULL, 0 );
-	}
-	
-	return 0;
+static int do_read(const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
+  (void)path; // Mark unused parameter
+  (void)buffer; // Mark unused parameter
+  (void)size; // Mark unused parameter
+  (void)offset; // Mark unused parameter
+  (void)fi; // Mark unused parameter
+  printf("read called\n");
+  return 0; // Return success, indicating no data read
 }
 
-static int do_read( const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi )
-{
-	int file_idx = get_file_index( path );
-	
-	if ( file_idx == -1 )
-		return -1;
-	
-	char *content = files_content[ file_idx ];
-	
-	memcpy( buffer, content + offset, size );
-		
-	return strlen( content ) - offset;
+static int do_mkdir(const char *path, mode_t mode) {
+  (void)path; // Mark unused parameter
+  (void)mode; // Mark unused parameter
+  printf("mkdir called\n");
+  return 0; // Return success
 }
 
-static int do_mkdir( const char *path, mode_t mode )
-{
-	path++;
-	add_dir(path);
-	
-	return 0;
+static int do_mknod(const char *path, mode_t mode, dev_t rdev) {
+  (void)path; // Mark unused parameter
+  (void)mode; // Mark unused parameter
+  (void)rdev; // Mark unused parameter
+  printf("mknod called\n");
+  return 0; // Return success
 }
 
-static int do_mknod( const char *path, mode_t mode, dev_t rdev )
-{
-	path++;
-	add_file(path);
-	
-	return 0;
-}
-
-static int do_write( const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *info )
-{
-	write_to_file( path, buffer );
-	
-	return size;
+static int do_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *info) {
+  (void)path; // Mark unused parameter
+  (void)buffer; // Mark unused parameter
+  (void)size; // Mark unused parameter
+  (void)offset; // Mark unused parameter
+  (void)info; // Mark unused parameter
+  printf("write called\n");
+  return size; // Pretend that the write was successful and all bytes were written
 }
 
 static struct fuse_operations operations = {
-    .getattr	= do_getattr,
-    .readdir	= do_readdir,
-    .read		= do_read,
-    .mkdir		= do_mkdir,
-    .mknod		= do_mknod,
-    .write		= do_write,
+  .getattr	= do_getattr,
+  .readdir	= do_readdir,
+  .read		= do_read,
+  .mkdir		= do_mkdir,
+  .mknod		= do_mknod,
+  .write		= do_write,
 };
 
 int main( int argc, char *argv[] ) {
-	return fuse_main(argc, argv, &operations, NULL);
+  return fuse_main(argc, argv, &operations, NULL);
 }
 
