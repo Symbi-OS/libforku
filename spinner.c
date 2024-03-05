@@ -5,8 +5,8 @@
 #include <unistd.h>
 #include <stdint.h>
 
-// 3 GB
-#define TEST_MALLOC_SIZE 1024 * 1024 * 1024 * 3ULL
+// 500 MB
+#define TEST_MALLOC_SIZE 1024 * 1024 * 500ULL
 
 volatile int g_signaled = 0;
 
@@ -54,6 +54,8 @@ int main() {
       for (size_t i = 0; i < TEST_MALLOC_SIZE - 1; ++i) {
         m[i] = 0xff;
       }
+
+      printf("Allocated %lld MB\n", TEST_MALLOC_SIZE / 1024 / 1024);
     }
   }
 
