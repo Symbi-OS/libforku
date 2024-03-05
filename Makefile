@@ -42,5 +42,9 @@ malloc_spinner: spinner.c
 forku_monitord: forku_monitord.c libforku.a libsnapshot.a
 	$(CC) $(CFLAGS) $(FUSE_FLAGS) -I$(SYMLIB_INCLUDE_DIR) $^ -o $@ $(KERNEL_LINK) $(FORKU_LINK) $(SNAPSHOT_LINK) $(SYMLIB_LINK)
 
+run_forku_monitor: forku_monitord
+	@mkdir -p sn
+	./forku_monitord -f ./sn
+
 clean:
 	rm -rf *.o *.so *.s .*.d *.a core.* malloc_spinner forku_util forku_monitord
