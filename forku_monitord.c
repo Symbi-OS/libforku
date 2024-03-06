@@ -9,7 +9,6 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <libgen.h>
-#include <signal.h>
 #include "snapshot.h"
 
 struct snapshot {
@@ -352,20 +351,11 @@ static int do_utimens(const char *path, const struct timespec ts[2]) {
   return 0;
 }
 
-static struct fuse_operations operations = {
-  .getattr	= do_getattr,
-  .readdir	= do_readdir,
-  .read		= do_read,
-  .mkdir    = do_mkdir,
-  .mknod    = do_mknod,
-  .write	= do_write,
-  .utimens  = do_utimens,
-};
-
-void cleanup_and_exit(int sig) {
-  printf("Received signal %d, cleaning up and exiting...\n", sig);
+void fuse_shutdown(void* private_data) {
+  (void)private_data;
 
   sym_elevate();
+
   for (size_t i = 0; i < g_pids.count; i++) {
     struct pid_entry *entry = &g_pids.entries[i];
 
@@ -375,23 +365,22 @@ void cleanup_and_exit(int sig) {
       printf("Freed snapshot task 0x%lx\n", (uint64_t)sn->task);
     }
   }
+
   sym_lower();
-
-  exit(0);
 }
 
-void setup_signal_handlers() {
-  struct sigaction sa;
-  sa.sa_handler = cleanup_and_exit;
-  sigemptyset(&sa.sa_mask);
-  sa.sa_flags = 0;
-
-  sigaction(SIGINT, &sa, NULL);  // Handle Ctrl+C
-  sigaction(SIGTERM, &sa, NULL); // Handle `kill` command
-}
+static struct fuse_operations operations = {
+  .getattr	= do_getattr,
+  .readdir	= do_readdir,
+  .read		= do_read,
+  .mkdir    = do_mkdir,
+  .mknod    = do_mknod,
+  .write	= do_write,
+  .utimens  = do_utimens,
+  .destroy  = fuse_shutdown,
+};
 
 int main(int argc, char *argv[]) {
-  setup_signal_handlers();
   return fuse_main(argc, argv, &operations, NULL);
 }
 
