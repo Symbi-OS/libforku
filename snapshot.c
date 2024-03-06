@@ -1,13 +1,16 @@
 #include "snapshot.h"
 #include <stdio.h>
 
-void snapshot_task(struct task_struct *task, int target_pid, const char* filename) {
+void snapshot_task(struct task_struct *task, int target_pid, const char* filename, size_t *out_total_pages, size_t *out_present_pages) {
   struct mm_struct *mm;
   struct vm_area_struct *vma;
   struct pte_struct pgd, p4d, pud, pmd, pte;
   uint64_t addr, pages_total = 0, pages_present = 0, vma_pages;
   FILE *xml_file;
 
+  if (!filename)
+    filename = "/dev/null";
+  
   xml_file = fopen(filename, "w");
   if (!xml_file) {
     fprintf(stderr, "Failed to open file\n");
@@ -65,7 +68,7 @@ void snapshot_task(struct task_struct *task, int target_pid, const char* filenam
               (uint64_t)pte.page_frame_number, pte.protection_key, pte.execute_disable);
     }
 
-    printf("    pages in vma: %li\n", vma_pages);
+    //printf("    pages in vma: %li\n", vma_pages);
 
     fprintf(xml_file, "    <pagesInVMA>%li</pagesInVMA>\n", vma_pages);
     fprintf(xml_file, "  </vma>\n");
@@ -77,15 +80,20 @@ void snapshot_task(struct task_struct *task, int target_pid, const char* filenam
 
   printf("Pages present : %li\n", pages_present);
   printf("Total pages   : %li\n", pages_total);
-  printf("\n");
-
   printf("Wrote results to %s\n", filename);
-
+  printf("\n");
+  
   fclose(xml_file);
+
+  if (out_total_pages)
+    *out_total_pages = pages_total;
+
+  if (out_present_pages)
+    *out_present_pages = pages_present;
 }
 
 void snapshot_pid(int target_pid, const char* filename) {
   struct task_struct *task = pid_to_task(target_pid);
-  snapshot_task(task, target_pid, filename);
+  snapshot_task(task, target_pid, filename, NULL, NULL);
 }
 

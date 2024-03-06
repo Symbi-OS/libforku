@@ -13,14 +13,14 @@ EOF
 
 blacklisted_symbols=(
   "malloc" "free" "calloc" "realloc"
-  "strcpy" "strncpy" "strcat" "strncat" "strcmp" "strncmp" "strlen" "strchr" "strrchr" "strstr" "strtok" "sprintf" "sscanf" "atoi" "atol" "atof"
+  "strcpy" "strncpy" "strcat" "strncat" "strcmp" "strncmp" "strlen" "strchr" "strrchr" "strstr" "strtok" "sprintf" "sscanf" "atoi" "atol" "atof" "snprintf"
   "fopen" "fclose" "fread" "fwrite" "fprintf" "fscanf" "fgets" "fputs" "fseek" "ftell" "rewind" "ferror" "feof"
   "fork" "exec" "wait" "exit" "getpid" "getppid" "signal" "kill"
   "dlopen" "dlsym" "dlclose" "dlerror"
   "pthread_create" "pthread_join" "pthread_mutex_lock" "pthread_mutex_unlock" "pthread_cond_wait" "pthread_cond_signal"
   "socket" "connect" "bind" "listen" "accept" "send" "recv"
   "time" "localtime" "gmtime" "mktime" "strftime" "sleep"
-  "mount" "umount" "dir_list"
+  "mount" "umount" "dir_list" "__fentry__"
   "memset" "memcpy" "memmove" "memcmp" "memchr"
   "strerror" "strncpy" "strncat" "strcspn" "strspn" "strpbrk" "strtod" "strtol" "strtoul" "strxfrm"
   "isalpha" "isdigit" "isalnum" "islower" "isupper" "isspace" "ispunct" "isxdigit" "tolower" "toupper"
