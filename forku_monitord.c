@@ -9,11 +9,13 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <libgen.h>
+#include <signal.h>
+#include "snapshot.h"
 
 struct snapshot {
-  int pid;
-  char* name;
-  void* task;
+  int                pid;
+  char               *name;
+  struct task_struct *task;
 };
 
 struct pid_entry {
@@ -128,6 +130,22 @@ int register_snapshot(int pid, void* task, const char* name) {
   
   entry->snapshots[entry->snapshot_count++] = sn;
   return 1;
+}
+
+struct task_struct* take_snapshot(int target_pid) {
+  struct task_struct *forked_task = NULL;
+
+  sym_elevate();
+  forked_task = forku_pid(target_pid);
+  sym_lower();
+
+  return forked_task;
+}
+
+void free_snapshot_task(struct task_struct *task) {
+  sym_elevate();
+  forku_free_task(task);
+  sym_lower();
 }
 
 void add_dir(const char *dir_name) {
@@ -293,12 +311,14 @@ static int do_mknod(const char *path, mode_t mode, dev_t rdev) {
   long pid = strtol(dir + 1, NULL, 10); // Convert PID from string to long
   if (pid > 0 && pid_registered(pid)) {
     if (!snapshot_exists(pid, base)) {
-      // Here we would call a hypothetical function to actually "take" a snapshot.
-      // For this example, we'll simulate it by just registering a snapshot.
-      if (register_snapshot(pid, NULL, base)) {
+      // Here we actually take a snapshot with libforku
+      struct task_struct *task = take_snapshot(pid);
+      
+      if (register_snapshot(pid, task, base)) {
         free(path_copy);
         return 0; // Success
       } else {
+        free_snapshot_task(task);
         free(path_copy);
         return -EIO; // I/O error
       }
@@ -342,7 +362,36 @@ static struct fuse_operations operations = {
   .utimens  = do_utimens,
 };
 
-int main( int argc, char *argv[] ) {
+void cleanup_and_exit(int sig) {
+  printf("Received signal %d, cleaning up and exiting...\n", sig);
+
+  sym_elevate();
+  for (size_t i = 0; i < g_pids.count; i++) {
+    struct pid_entry *entry = &g_pids.entries[i];
+
+    for (size_t snidx = 0; snidx < entry->snapshot_count; snidx++) {
+      struct snapshot *sn = &entry->snapshots[snidx];
+      forku_free_task(sn->task);
+      printf("Freed snapshot task 0x%lx\n", (uint64_t)sn->task);
+    }
+  }
+  sym_lower();
+
+  exit(0);
+}
+
+void setup_signal_handlers() {
+  struct sigaction sa;
+  sa.sa_handler = cleanup_and_exit;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+
+  sigaction(SIGINT, &sa, NULL);  // Handle Ctrl+C
+  sigaction(SIGTERM, &sa, NULL); // Handle `kill` command
+}
+
+int main(int argc, char *argv[]) {
+  setup_signal_handlers();
   return fuse_main(argc, argv, &operations, NULL);
 }
 
