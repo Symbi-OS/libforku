@@ -203,7 +203,7 @@ static int do_getattr(const char *path, struct stat *st) {
           // Mimic as a regular file for existing snapshots
           st->st_mode = S_IFREG | 0444; // Read-only for simplicity
           st->st_nlink = 1; // Regular file
-          st->st_size = sizeof(struct snapshot);
+          st->st_size = 4096;
           free(path_copy);
           return 0;
         }
@@ -256,13 +256,62 @@ static int do_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, of
 }
 
 static int do_read(const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
-  (void)path; // Mark unused parameter
-  (void)buffer; // Mark unused parameter
-  (void)size; // Mark unused parameter
-  (void)offset; // Mark unused parameter
-  (void)fi; // Mark unused parameter
-  printf("read called\n");
-  return 0; // Return success, indicating no data read
+  (void)fi;
+  
+  // Split the path into the PID directory and the snapshot name
+  char *path_copy = strdup(path);
+  char *parent_dir = dirname(path_copy);
+  char *snapshot_name = basename((char*)path);
+
+  // Convert parent directory name to PID
+  long pid = strtol(parent_dir + 1, NULL, 10);
+  if (pid <= 0) {
+    free(path_copy);
+    return -EINVAL; // Invalid argument if PID is not positive
+  }
+
+  // Check if PID is registered and get the snapshot struct
+  if (!pid_registered(pid)) {
+    free(path_copy);
+    return -ENOENT; // No such file or directory if PID is not registered
+  }
+
+  struct snapshot *sn = get_snapshot(pid, snapshot_name);
+  if (sn == NULL) {
+    free(path_copy);
+    return -ENOENT; // No such file or directory if snapshot is not found
+  }
+
+  free(path_copy);
+  
+  size_t total_pages = 0, present_pages = 0;
+  
+  // Simply walk through VMAs without writing them to a file
+  // and print the results to stdout.
+  sym_elevate();
+  snapshot_task(sn->task, (int)pid, NULL, &total_pages, &present_pages); 
+  sym_lower();
+
+  // Prepare the message.
+  char message[512] = { 0 };
+  int message_len = snprintf(message, sizeof(message),
+                             "Total pages    : %zu\n"
+                             "Present pages  : %zu\n",
+                             total_pages, present_pages);
+
+  // Check if offset is beyond the end of the message.
+  if (offset >= message_len) {
+    return 0; // Nothing more to read.
+  }
+
+  // Calculate how much data we can copy.
+  size_t available = message_len - offset; // How much data is available to read.
+  size_t bytes_to_copy = (size < available) ? size : available;
+
+  // Copy the portion of the message to the buffer.
+  memcpy(buffer, message + offset, bytes_to_copy);
+
+  return bytes_to_copy; // Return the number of bytes copied.
 }
 
 static int do_mkdir(const char *path, mode_t mode) {
