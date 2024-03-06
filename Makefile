@@ -44,7 +44,7 @@ forku_monitord: forku_monitord.c libforku.a libsnapshot.a
 
 run_forku_monitor: forku_monitord
 	@mkdir -p sn
-	./forku_monitord -f ./sn
+	./forku_monitord -f -s -d ./sn
 
 clean:
 	rm -rf *.o *.so *.s .*.d *.a core.* malloc_spinner forku_util forku_monitord

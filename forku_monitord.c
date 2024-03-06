@@ -8,17 +8,127 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <libgen.h>
 
-char dir_list[ 256 ][ 256 ];
-int curr_dir_idx = -1;
+struct snapshot {
+  int pid;
+  char* name;
+  void* task;
+};
 
-char files_list[ 256 ][ 256 ];
-int curr_file_idx = -1;
+struct pid_entry {
+  int pid;
+  struct snapshot *snapshots; // Array of snapshots
+  size_t snapshot_count;      // Number of snapshots
+  size_t capacity;            // Capacity of the snapshots array
+};
 
-char files_content[ 256 ][ 256 ];
-int curr_file_content_idx = -1;
+struct pid_list {
+  struct pid_entry *entries;   // Pointer to the array of PIDs
+  size_t count;                // Current number of PIDs
+  size_t capacity;             // Current capacity of the array
+};
 
-int sample_pids[5] = { 4554, 7242, 6592, 10325, 32554 };
+// Global array of registered pids
+struct pid_list g_pids = { .entries = NULL, .count = 0, .capacity = 0 };
+
+int pid_registered(int pid) {
+  for(size_t i = 0; i < g_pids.count; ++i) {
+    if (g_pids.entries[i].pid == pid)
+      return 1;
+  }
+
+  return 0;
+}
+
+struct pid_entry *get_pid_entry(int pid) {
+  for (size_t i = 0; i < g_pids.count; i++) {
+    if (g_pids.entries[i].pid == pid)
+      return &g_pids.entries[i];
+  }
+
+  return NULL;
+}
+
+struct snapshot *get_snapshot(int pid, const char* name) {
+  if (!pid_registered(pid))
+    return NULL;
+
+  struct pid_entry *entry = get_pid_entry(pid);
+  if (!entry)
+    return NULL;
+
+  for (size_t i = 0; i < entry->snapshot_count; i++) {
+    if (strcmp(entry->snapshots[i].name, name) == 0)
+      return &entry->snapshots[i];
+  }
+
+  return NULL;
+}
+
+int snapshot_exists(int pid, const char* name) {
+  struct snapshot *sn = get_snapshot(pid, name);
+  return (sn != NULL);
+}
+
+int register_pid(int pid) {
+  if (pid_registered(pid))
+    return 0;
+
+  // Check if we need to expand the array
+  if (g_pids.count == g_pids.capacity) {
+    size_t new_capacity = g_pids.capacity == 0 ? 4 : g_pids.capacity * 2;
+    struct pid_entry *new_entries = realloc(g_pids.entries, new_capacity * sizeof(struct pid_entry));
+    if (!new_entries) {
+      perror("Failed to realloc PID entries array");
+      return 0;
+    }
+
+    g_pids.entries = new_entries;
+    g_pids.capacity = new_capacity;
+  }
+
+  // Add a new PID entry
+  struct pid_entry entry;
+  memset(&entry, 0, sizeof(struct pid_entry));
+  entry.pid = pid;
+  
+  g_pids.entries[g_pids.count++] = entry;
+
+  return 1;
+}
+
+int register_snapshot(int pid, void* task, const char* name) {
+  if (!pid_registered(pid))
+    return 0;
+
+  struct pid_entry *entry = get_pid_entry(pid);
+  
+  // Check if we need to expand the array
+  if (entry->snapshot_count == entry->capacity) {
+    size_t new_capacity = entry->capacity == 0 ? 4 : entry->capacity * 2;
+    struct snapshot *new_snapshots = realloc(entry->snapshots, new_capacity * sizeof(struct snapshot));
+    if (!new_snapshots) {
+      perror("Failed to realloc snapshots array");
+      return 0;
+    }
+
+    entry->snapshots = new_snapshots;
+    entry->capacity = new_capacity;
+  }
+
+  // Add a new snapshot entry
+  struct snapshot sn;
+  memset(&sn, 0, sizeof(struct snapshot));
+  sn.pid = pid;
+  sn.task = task;
+
+  sn.name = malloc(strlen(name) + 1);
+  strcpy(sn.name, name);
+  
+  entry->snapshots[entry->snapshot_count++] = sn;
+  return 1;
+}
 
 void add_dir(const char *dir_name) {
   printf("Request to add directory: %s\n", dir_name);
@@ -46,19 +156,47 @@ void write_to_file(const char *path, const char *new_content) {
 
 static int do_getattr(const char *path, struct stat *st) {
   memset(st, 0, sizeof(struct stat));
+
+  // Handling the root directory
   if (strcmp(path, "/") == 0) {
     st->st_mode = S_IFDIR | 0555;
-    st->st_nlink = 2; // Standard for directories
+    st->st_nlink = 2;
   } else {
-    // Check if the path corresponds to one of the PID-based directories
-    int pid = atoi(path + 1); // Convert the path to an integer, skipping the leading '/'
-    if (pid > 0) {
-      st->st_mode = S_IFDIR | 0555;
-      st->st_nlink = 2; // Standard for directories
+    // Attempt to interpret the path as either a PID directory or a snapshot file
+    char *path_copy = strdup(path);
+    char *parent_dir = dirname(path_copy);
+    char *last_component = basename((char*)path);
+
+    // Check if the parent directory is root (indicating a PID directory)
+    if (strcmp(parent_dir, "/") == 0) {
+      long pid = strtol(last_component, NULL, 10);
+
+      if (pid > 0 && pid_registered(pid)) {
+        st->st_mode = S_IFDIR | 0555;
+        st->st_nlink = 2; // Mimic as a directory for registered PIDs
+        free(path_copy);
+        return 0;
+      }
     } else {
-      return -ENOENT;
+      // Handle snapshot files within a PID directory
+      long pid = strtol(parent_dir + 1, NULL, 10); // Convert parent directory name to PID
+
+      if (pid > 0 && pid_registered(pid)) {
+        if (snapshot_exists(pid, last_component)) {
+          // Mimic as a regular file for existing snapshots
+          st->st_mode = S_IFREG | 0444; // Read-only for simplicity
+          st->st_nlink = 1; // Regular file
+          st->st_size = sizeof(struct snapshot);
+          free(path_copy);
+          return 0;
+        }
+      }
     }
+
+    free(path_copy);
+    return -ENOENT; // Path does not correspond to a valid PID or snapshot
   }
+  
   return 0;
 }
 
@@ -67,20 +205,36 @@ static int do_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, of
   (void)fi; // Unused parameter
 
   if (strcmp(path, "/") == 0) {
+    // Listing PIDs as directories
     filler(buffer, ".", NULL, 0);
     filler(buffer, "..", NULL, 0);
 
-    char dir_name[64] = { 0 };
-    size_t entries = sizeof(sample_pids) / sizeof(sample_pids[0]);
-    for(size_t i = 0; i < entries; ++i) {
-      sprintf(dir_name, "%d", sample_pids[i]);
-      filler(buffer, dir_name, NULL, 0);
+    for (size_t i = 0; i < g_pids.count; ++i) {
+      char pid_dir[32];
+      sprintf(pid_dir, "%d", g_pids.entries[i].pid);
+      filler(buffer, pid_dir, NULL, 0);
     }
   } else {
-    // Handle other directories if your filesystem supports them
-    return -ENOENT;
-  }
+    // Attempt to list snapshots within a PID directory
+    long pid = strtol(path + 1, NULL, 10);
+    if (pid > 0 && pid_registered(pid)) {
+      struct pid_entry *entry = get_pid_entry(pid);
 
+      if (entry) {
+        filler(buffer, ".", NULL, 0);
+        filler(buffer, "..", NULL, 0);
+
+        for (size_t i = 0; i < entry->snapshot_count; ++i) {
+          filler(buffer, entry->snapshots[i].name, NULL, 0);
+        }
+
+        return 0; // Success
+      }
+    }
+    
+    return -ENOENT; // No such file or directory
+  }
+  
   return 0; // Successy
 }
 
@@ -95,17 +249,67 @@ static int do_read(const char *path, char *buffer, size_t size, off_t offset, st
 }
 
 static int do_mkdir(const char *path, mode_t mode) {
-  (void)path; // Mark unused parameter
   (void)mode; // Mark unused parameter
-  printf("mkdir called\n");
+
+  // Attempt to convert the path (excluding the leading '/') to a long integer.
+  char *endptr;
+  long pid = strtol(path + 1, &endptr, 10); // Base 10 conversion
+
+  // Validate conversion.
+  // Check if conversion stopped at the first character or if there were any non-numeric characters.
+  if (endptr == path + 1 || *endptr != '\0') {
+    printf("Error: Path is not a valid integer.\n");
+    return -EINVAL; // Invalid argument error
+  }
+
+  // Check if the PID is within a valid range (assuming PID > 0).
+  if (pid <= 0) {
+    printf("Error: PID must be a positive integer.\n");
+    return -EINVAL;
+  }
+
+  // Add the PID to our array.
+  if (!register_pid((int)pid))
+    return -EINVAL;
+
   return 0; // Return success
 }
 
 static int do_mknod(const char *path, mode_t mode, dev_t rdev) {
-  (void)path; // Mark unused parameter
   (void)mode; // Mark unused parameter
   (void)rdev; // Mark unused parameter
-  printf("mknod called\n");
+
+  // Split the path into PID and snapshot name
+  char *path_copy = strdup(path);
+  char *dir = dirname(path_copy);
+  char *base = basename((char*)path);
+
+  if (strcmp(dir, "/") == 0) {
+    free(path_copy);
+    printf("mknod called at root, which is not supported for snapshot creation.\n");
+    return -EPERM; // Operation not permitted
+  }
+
+  long pid = strtol(dir + 1, NULL, 10); // Convert PID from string to long
+  if (pid > 0 && pid_registered(pid)) {
+    if (!snapshot_exists(pid, base)) {
+      // Here we would call a hypothetical function to actually "take" a snapshot.
+      // For this example, we'll simulate it by just registering a snapshot.
+      if (register_snapshot(pid, NULL, base)) {
+        free(path_copy);
+        return 0; // Success
+      } else {
+        free(path_copy);
+        return -EIO; // I/O error
+      }
+    } else {
+      free(path_copy);
+      printf("Snapshot %s for PID %ld already exists.\n", base, pid);
+      return -EEXIST; // File exists
+    }
+  }
+
+  free(path_copy);
   return 0; // Return success
 }
 
@@ -119,13 +323,23 @@ static int do_write(const char *path, const char *buffer, size_t size, off_t off
   return size; // Pretend that the write was successful and all bytes were written
 }
 
+static int do_utimens(const char *path, const struct timespec ts[2]) {
+  // This is a simplified implementation. You might want to store these times in your data structure.
+  (void)path; // Mark unused parameter
+  (void)ts;   // Mark unused parameter
+
+  // Return 0 to indicate success.
+  return 0;
+}
+
 static struct fuse_operations operations = {
   .getattr	= do_getattr,
   .readdir	= do_readdir,
   .read		= do_read,
-  .mkdir		= do_mkdir,
-  .mknod		= do_mknod,
-  .write		= do_write,
+  .mkdir    = do_mkdir,
+  .mknod    = do_mknod,
+  .write	= do_write,
+  .utimens  = do_utimens,
 };
 
 int main( int argc, char *argv[] ) {
