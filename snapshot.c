@@ -26,7 +26,7 @@ void snapshot_task(struct task_struct *task, int target_pid, const char* filenam
   
   acquire_mm_lock(mm);
   for (vma = get_base_vma(mm); vma; vma = get_next_vma(vma)) {
-    printf("VMA: 0x%lx - 0x%lx ", get_vma_start(vma), get_vma_end(vma));
+    //printf("VMA: 0x%lx - 0x%lx ", get_vma_start(vma), get_vma_end(vma));
     vma_pages = 0;
 
     fprintf(xml_file, "  <vma start=\"0x%lx\" end=\"0x%lx\">\n", get_vma_start(vma), get_vma_end(vma));
