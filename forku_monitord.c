@@ -411,9 +411,12 @@ static int do_write(const char *path, const char *buffer, size_t size, off_t off
     return -ENOENT; // No such file or directory if snapshot is not found
   }
 
-  // Perform the forku_schedule_task operation on the snapshot's task field
+  // Perform the forku_schedule_task operation on the snapshot
+  struct task_struct *runnable_task;
+
   sym_elevate();
-  forku_schedule_task(sn->task);
+  runnable_task = forku_task(sn->task);
+  forku_schedule_task(runnable_task);
   sym_lower();
   
   free(path_copy);
