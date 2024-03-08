@@ -381,14 +381,43 @@ static int do_mknod(const char *path, mode_t mode, dev_t rdev) {
   return 0; // Return success
 }
 
-static int do_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *info) {
-  (void)path; // Mark unused parameter
-  (void)buffer; // Mark unused parameter
-  (void)size; // Mark unused parameter
-  (void)offset; // Mark unused parameter
-  (void)info; // Mark unused parameter
-  printf("write called\n");
-  return size; // Pretend that the write was successful and all bytes were written
+static int do_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
+  (void)fi; // The fi parameter is unused for now.
+  (void)size;
+  (void)offset;
+  (void)buffer;
+  
+  // Split the path into the PID directory and the snapshot name
+  char *path_copy = strdup(path);
+  char *parent_dir = dirname(path_copy);
+  char *snapshot_name = basename((char*)path);
+
+  // Convert parent directory name to PID
+  long pid = strtol(parent_dir + 1, NULL, 10);
+  if (pid <= 0) {
+    free(path_copy);
+    return -EINVAL; // Invalid argument if PID is not positive
+  }
+
+  // Check if PID is registered and get the snapshot struct
+  if (!pid_registered(pid)) {
+    free(path_copy);
+    return -ENOENT; // No such file or directory if PID is not registered
+  }
+
+  struct snapshot *sn = get_snapshot(pid, snapshot_name);
+  if (sn == NULL) {
+    free(path_copy);
+    return -ENOENT; // No such file or directory if snapshot is not found
+  }
+
+  // Perform the forku_schedule_task operation on the snapshot's task field
+  sym_elevate();
+  forku_schedule_task(sn->task);
+  sym_lower();
+  
+  free(path_copy);
+  return size;
 }
 
 static int do_utimens(const char *path, const struct timespec ts[2]) {

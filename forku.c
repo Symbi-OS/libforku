@@ -35,15 +35,6 @@ struct task_struct *pid_to_task(__kernel_pid_t pid) {
 
 extern struct task_struct *forku_copy_process(struct kernel_clone_args *args);
 
-extern __latent_entropy struct task_struct *copy_process(
-                                                         struct pid *pid,
-                                                         int trace,
-                                                         int node,
-                                                         struct kernel_clone_args *args
-                                                         );
-
-extern struct task_struct *forku_copy_process(struct kernel_clone_args *args);
-
 int *read_tid_ptr(struct task_struct* task) {
   uint64_t fsbase, tls_entry;
   uint64_t* tls_entry_ptr;
@@ -98,9 +89,7 @@ struct task_struct* forku_task(struct task_struct* target_task) {
   }
 
   impersonated_pid = current->pid;
-  //forked_task = copy_process(NULL, 0, NUMA_NO_NODE, &args);
   forked_task = forku_copy_process(&args);
-  //kernel_clone(&args);
   
   // Swap the current task back to the original task of the forku_util process
   this_cpu_write(current_task, original_task);
@@ -129,6 +118,10 @@ struct task_struct *forku_pid(int pid) {
   }
 
   return forku_task(target_task_struct);
+}
+
+void forku_schedule_task(struct task_struct *task) {
+  wake_up_new_task(task);
 }
 
 extern struct kmem_cache *task_struct_cachep;
