@@ -141,6 +141,16 @@ struct task_struct* take_snapshot(int target_pid) {
   return forked_task;
 }
 
+void launch_snapshot(struct snapshot *sn) {
+  // Perform the forku_schedule_task operation on the snapshot
+  struct task_struct *runnable_task;
+
+  sym_elevate();
+  runnable_task = forku_task(sn->task);
+  forku_schedule_task(runnable_task);
+  sym_lower();
+}
+
 void free_snapshot_task(struct task_struct *task) {
   sym_elevate();
   forku_free_task(task);
@@ -412,12 +422,7 @@ static int do_write(const char *path, const char *buffer, size_t size, off_t off
   }
 
   // Perform the forku_schedule_task operation on the snapshot
-  struct task_struct *runnable_task;
-
-  sym_elevate();
-  runnable_task = forku_task(sn->task);
-  forku_schedule_task(runnable_task);
-  sym_lower();
+  launch_snapshot(sn);
   
   free(path_copy);
   return size;

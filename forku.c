@@ -124,6 +124,36 @@ void forku_schedule_task(struct task_struct *task) {
   wake_up_new_task(task);
 }
 
+// void forku_task_set_tty(struct task_struct *task, pid_t tty_proc_pid) {
+//   struct task_struct *tty_task;
+//   int fd;
+//   struct fdtable *fdt_from, *fdt_to;
+//   struct file *file;
+
+//   tty_task = pid_to_task(tty_proc_pid);
+
+//   rcu_read_lock();
+//   fdt_from = files_fdtable(tty_task->files);
+//   fdt_to = files_fdtable(task->files);
+
+//   for (fd = 1; fd <= 2; fd++) {
+//       /* Access the file descriptor in a safe manner */
+//       file = rcu_dereference_check_fdtable(tty_task->files, fdt_from->fd[fd]);
+//       if (file) {
+//           get_file(file);  // Increment the refcount on the file object
+//           /* Assign the file to the new task, ensuring thread safety */
+//           spin_lock(&task->files->file_lock);
+//           if (fdt_to->fd[fd]) {
+//               filp_close(rcu_dereference_protected(fdt_to->fd[fd], true), task->files);
+//           }
+//           rcu_assign_pointer(fdt_to->fd[fd], file);  // Assign the file to the new task
+//           spin_unlock(&task->files->file_lock);
+//       }
+//   }
+
+//   rcu_read_unlock();
+// }
+
 extern struct kmem_cache *task_struct_cachep;
 
 void forku_free_task(struct task_struct *task) {
