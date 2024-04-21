@@ -6,6 +6,9 @@
 #include <linux/pid.h>
 #include <asm/ptrace.h>
 #include <linux/slab.h> // kmem_cache_free
+#include <linux/fs.h> // For struct files_struct and other file related structures
+#include <linux/file.h> // For fget, fput, etc.
+#include <linux/fdtable.h> // For fdtable
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Albert Slepak");
@@ -47,6 +50,40 @@ int *read_tid_ptr(struct task_struct* task) {
   tid_ptr = (int*)(tls_entry + 0x2d0);
 
   return tid_ptr;
+}
+
+static int copy_std_fds(struct task_struct *src, struct task_struct *dst) {
+  struct fdtable *src_fdt, *dst_fdt;
+  struct file *file;
+  int fd, ret = 0;
+
+  if (!src || !dst)
+    return -EINVAL;
+
+  rcu_read_lock();
+  src_fdt = files_fdtable(src->files);
+  dst_fdt = files_fdtable(dst->files);
+
+  // Loop over the file descriptors 1 and 2 (stdout and stderr)
+  for (fd = 0; fd <= 2; fd++) {
+    file = rcu_dereference_check_fdtable(src->files, src_fdt->fd[fd]);
+    if (file) {
+      get_file(file); // Increment the reference count of the file
+
+      spin_lock(&dst->files->file_lock);
+      // Check if the destination already has a file for this fd
+      if (dst_fdt->fd[fd]) {
+        // Close the existing file in the destination task
+        filp_close(rcu_dereference_protected(dst_fdt->fd[fd], true), dst->files);
+      }
+      // Assign the file from the source to the destination
+      rcu_assign_pointer(dst_fdt->fd[fd], file);
+      spin_unlock(&dst->files->file_lock);
+    }
+  }
+
+  rcu_read_unlock();
+  return ret;
 }
 
 #pragma GCC diagnostic error "-Wdeclaration-after-statement"
@@ -123,85 +160,12 @@ struct task_struct *forku_pid(int pid) {
 }
 
 void forku_populate_task(struct task_struct *task, struct task_struct *foster_parent) {
-  struct task_struct *original_task;
-  int                 impersonated_pid;
-  
-  struct kernel_clone_args args = {
-    .flags      = 0x1200000 | CLONE_PARENT,
-    .pidfd      = NULL, // if you want a pidfd, you need to allocate it
-    .child_tid  = NULL, // child's TID in the child memory
-    .parent_tid = NULL, // child's TID in the parent memory
-    .exit_signal = SIGCHLD,
-  };
-
-  original_task = current;
-  printk("[EXECU]\n");
-  printk("current->pid      : %i\n", current->pid);
-
-  preempt_disable();
-  local_irq_disable();
-
-  // Impersonate the target task, for some reason abstracting this
-  // away into its own function causes it to not work anymore.
-  this_cpu_write(current_task, foster_parent);
-
-  // The following if statement makes the CPU do something that appears like
-  // a flush of hidden segment register caches and necessary in order to
-  // update the current task in the per-cpu data structure.
-  if (!static_branch_likely(&switch_to_cond_stibp)) {
-    asm volatile("nop");
-  }
-
-  impersonated_pid = current->pid;
-  forku_populate_process(task, foster_parent, &args);
-  
-  // Swap the current task back to the original task of the forku_util process
-  this_cpu_write(current_task, original_task);
-  if (!static_branch_likely(&switch_to_cond_stibp)) {
-    asm volatile("nop");
-  }
-
-  local_irq_enable();
-  preempt_enable();
-
-  printk("impersonated pid  : %i\n", impersonated_pid);
-  printk("current->pid      : %i\n", current->pid);
-  printk("\n");
+  copy_std_fds(foster_parent, task);
 }
 
 void forku_schedule_task(struct task_struct *task) {
   wake_up_new_task(task);
 }
-
-// void forku_task_set_tty(struct task_struct *task, pid_t tty_proc_pid) {
-//   struct task_struct *tty_task;
-//   int fd;
-//   struct fdtable *fdt_from, *fdt_to;
-//   struct file *file;
-
-//   tty_task = pid_to_task(tty_proc_pid);
-
-//   rcu_read_lock();
-//   fdt_from = files_fdtable(tty_task->files);
-//   fdt_to = files_fdtable(task->files);
-
-//   for (fd = 1; fd <= 2; fd++) {
-//       /* Access the file descriptor in a safe manner */
-//       file = rcu_dereference_check_fdtable(tty_task->files, fdt_from->fd[fd]);
-//       if (file) {
-//           get_file(file);  // Increment the refcount on the file object
-//           /* Assign the file to the new task, ensuring thread safety */
-//           spin_lock(&task->files->file_lock);
-//           if (fdt_to->fd[fd]) {
-//               filp_close(rcu_dereference_protected(fdt_to->fd[fd], true), task->files);
-//           }
-//           rcu_assign_pointer(fdt_to->fd[fd], file);  // Assign the file to the new task
-//           spin_unlock(&task->files->file_lock);
-//       }
-//   }
-
-//   rcu_read_unlock();
-// }
 
 extern struct kmem_cache *task_struct_cachep;
 
@@ -240,7 +204,6 @@ void acquire_mm_lock(struct mm_struct *mm) {
 void release_mm_lock(struct mm_struct *mm) {
   up_read(&mm->mmap_lock);
 }
-
 
 void get_page_table_info_for_address(
                                      struct mm_struct *mm,
