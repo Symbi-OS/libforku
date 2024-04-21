@@ -18,6 +18,7 @@ struct task_struct *get_current_task();
 struct task_struct *pid_to_task(int pid);
 struct task_struct *forku_task(struct task_struct* target_task);
 struct task_struct *forku_pid(int pid);
+void forku_populate_task(struct task_struct *task, struct task_struct *foster_parent);
 void forku_schedule_task(struct task_struct *task);
 
 // Page table functions

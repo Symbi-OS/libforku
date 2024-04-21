@@ -34,6 +34,7 @@ struct task_struct *pid_to_task(__kernel_pid_t pid) {
 }
 
 extern struct task_struct *forku_copy_process(struct kernel_clone_args *args);
+extern struct task_struct *forku_populate_process(struct task_struct *p, struct task_struct *foster_parent, struct kernel_clone_args *args);
 
 int *read_tid_ptr(struct task_struct* task) {
   uint64_t fsbase, tls_entry;
@@ -62,7 +63,7 @@ struct task_struct* forku_task(struct task_struct* target_task) {
   int                  impersonated_pid;
 
   struct kernel_clone_args args = {
-    .flags      = 0x1200000,
+    .flags      = 0x1200000 | CLONE_PARENT,
     .pidfd      = NULL, // if you want a pidfd, you need to allocate it
     .child_tid  = NULL, // child's TID in the child memory
     .parent_tid = NULL, // child's TID in the parent memory
@@ -72,6 +73,7 @@ struct task_struct* forku_task(struct task_struct* target_task) {
   //args.child_tid  = read_tid_ptr(current);
   
   original_task = current;
+  printk("[FORKU]\n");
   printk("current->pid      : %i\n", current->pid);
 
   preempt_disable();
@@ -118,6 +120,53 @@ struct task_struct *forku_pid(int pid) {
   }
 
   return forku_task(target_task_struct);
+}
+
+void forku_populate_task(struct task_struct *task, struct task_struct *foster_parent) {
+  struct task_struct *original_task;
+  int                 impersonated_pid;
+  
+  struct kernel_clone_args args = {
+    .flags      = 0x1200000 | CLONE_PARENT,
+    .pidfd      = NULL, // if you want a pidfd, you need to allocate it
+    .child_tid  = NULL, // child's TID in the child memory
+    .parent_tid = NULL, // child's TID in the parent memory
+    .exit_signal = SIGCHLD,
+  };
+
+  original_task = current;
+  printk("[EXECU]\n");
+  printk("current->pid      : %i\n", current->pid);
+
+  preempt_disable();
+  local_irq_disable();
+
+  // Impersonate the target task, for some reason abstracting this
+  // away into its own function causes it to not work anymore.
+  this_cpu_write(current_task, foster_parent);
+
+  // The following if statement makes the CPU do something that appears like
+  // a flush of hidden segment register caches and necessary in order to
+  // update the current task in the per-cpu data structure.
+  if (!static_branch_likely(&switch_to_cond_stibp)) {
+    asm volatile("nop");
+  }
+
+  impersonated_pid = current->pid;
+  forku_populate_process(task, foster_parent, &args);
+  
+  // Swap the current task back to the original task of the forku_util process
+  this_cpu_write(current_task, original_task);
+  if (!static_branch_likely(&switch_to_cond_stibp)) {
+    asm volatile("nop");
+  }
+
+  local_irq_enable();
+  preempt_enable();
+
+  printk("impersonated pid  : %i\n", impersonated_pid);
+  printk("current->pid      : %i\n", current->pid);
+  printk("\n");
 }
 
 void forku_schedule_task(struct task_struct *task) {

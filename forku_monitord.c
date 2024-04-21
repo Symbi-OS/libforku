@@ -141,12 +141,17 @@ struct task_struct* take_snapshot(int target_pid) {
   return forked_task;
 }
 
-void launch_snapshot(struct snapshot *sn) {
+void launch_snapshot(struct snapshot *sn, int foster_parent_pid) {
   // Perform the forku_schedule_task operation on the snapshot
   struct task_struct *runnable_task;
+  struct task_struct *foster_parent;
 
   sym_elevate();
   runnable_task = forku_task(sn->task);
+  foster_parent = pid_to_task(foster_parent_pid);
+  
+  forku_populate_task(runnable_task, foster_parent);
+
   forku_schedule_task(runnable_task);
   sym_lower();
 }
@@ -421,9 +426,32 @@ static int do_write(const char *path, const char *buffer, size_t size, off_t off
     return -ENOENT; // No such file or directory if snapshot is not found
   }
 
+  // Ensure buffer is null-terminated by making a copy
+  char *buffer_copy = strndup(buffer, size);
+  if (!buffer_copy) {
+    return -ENOMEM; // Return out of memory error
+  }
+
+  // Now we need to convert the buffer of user content that is
+  // being written to a target foster parent process pid.
+  char *endptr;
+  errno = 0; // Clear errno before conversion
+  long foster_parent_pid = strtol(buffer_copy, &endptr, 10);
+
+  // Check if conversion was successful
+  if (errno == ERANGE || foster_parent_pid == 0) {
+    free(buffer_copy);
+    return -EINVAL; // Conversion error or range error
+  }
+
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  printf("%ld.%09ld\n", ts.tv_sec, ts.tv_nsec);
+
   // Perform the forku_schedule_task operation on the snapshot
-  launch_snapshot(sn);
+  launch_snapshot(sn, foster_parent_pid);
   
+  free(buffer_copy);
   free(path_copy);
   return size;
 }
