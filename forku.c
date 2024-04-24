@@ -37,7 +37,7 @@ struct task_struct *pid_to_task(__kernel_pid_t pid) {
 }
 
 extern struct task_struct *forku_copy_process(struct kernel_clone_args *args);
-extern struct task_struct *forku_populate_process(struct task_struct *p, struct task_struct *foster_parent, struct kernel_clone_args *args);
+extern struct task_struct *forku_copy_process_execu_version(struct task_struct *foster_parent, struct kernel_clone_args *args);
 
 int *read_tid_ptr(struct task_struct* task) {
   uint64_t fsbase, tls_entry;
@@ -52,10 +52,10 @@ int *read_tid_ptr(struct task_struct* task) {
   return tid_ptr;
 }
 
-static int copy_std_fds(struct task_struct *src, struct task_struct *dst) {
+int copy_task_fd(struct task_struct *dst, struct task_struct *src, int fd) {
   struct fdtable *src_fdt, *dst_fdt;
   struct file *file;
-  int fd, ret = 0;
+  int ret = 0;
 
   if (!src || !dst)
     return -EINVAL;
@@ -64,22 +64,19 @@ static int copy_std_fds(struct task_struct *src, struct task_struct *dst) {
   src_fdt = files_fdtable(src->files);
   dst_fdt = files_fdtable(dst->files);
 
-  // Loop over the file descriptors 1 and 2 (stdout and stderr)
-  for (fd = 0; fd <= 2; fd++) {
-    file = rcu_dereference_check_fdtable(src->files, src_fdt->fd[fd]);
-    if (file) {
-      get_file(file); // Increment the reference count of the file
+  file = rcu_dereference_check_fdtable(src->files, src_fdt->fd[fd]);
+  if (file) {
+    get_file(file); // Increment the reference count of the file
 
-      spin_lock(&dst->files->file_lock);
-      // Check if the destination already has a file for this fd
-      if (dst_fdt->fd[fd]) {
-        // Close the existing file in the destination task
-        filp_close(rcu_dereference_protected(dst_fdt->fd[fd], true), dst->files);
-      }
-      // Assign the file from the source to the destination
-      rcu_assign_pointer(dst_fdt->fd[fd], file);
-      spin_unlock(&dst->files->file_lock);
+    spin_lock(&dst->files->file_lock);
+    // Check if the destination already has a file for this fd
+    if (dst_fdt->fd[fd]) {
+      // Close the existing file in the destination task
+      filp_close(rcu_dereference_protected(dst_fdt->fd[fd], true), dst->files);
     }
+    // Assign the file from the source to the destination
+    rcu_assign_pointer(dst_fdt->fd[fd], file);
+    spin_unlock(&dst->files->file_lock);
   }
 
   rcu_read_unlock();
@@ -159,8 +156,64 @@ struct task_struct *forku_pid(int pid) {
   return forku_task(target_task_struct);
 }
 
-void forku_populate_task(struct task_struct *task, struct task_struct *foster_parent) {
-  copy_std_fds(foster_parent, task);
+struct task_struct *forku_create_runnable_from_snapshot(struct task_struct *target_task, struct task_struct *foster_parent) {
+  /*
+    Outline:
+    original_task = current
+    current = target_task
+    *syscall*
+    current = original_task
+  */
+  struct task_struct*  original_task;
+  struct task_struct*  forked_task;
+  int                  impersonated_pid;
+
+  struct kernel_clone_args args = {
+    .flags      = 0x1200000,
+    .pidfd      = NULL, // if you want a pidfd, you need to allocate it
+    .child_tid  = NULL, // child's TID in the child memory
+    .parent_tid = NULL, // child's TID in the parent memory
+    .exit_signal = SIGCHLD,
+  };
+
+  //args.child_tid  = read_tid_ptr(current);
+  
+  original_task = current;
+  printk("[EXECU]\n");
+  printk("current->pid      : %i\n", current->pid);
+
+  preempt_disable();
+  local_irq_disable();
+  
+  // Impersonate the target task, for some reason abstracting this
+  // away into its own function causes it to not work anymore.
+  this_cpu_write(current_task, target_task);
+
+  // The following if statement makes the CPU do something that appears like
+  // a flush of hidden segment register caches and necessary in order to
+  // update the current task in the per-cpu data structure.
+  if (!static_branch_likely(&switch_to_cond_stibp)) {
+    asm volatile("nop");
+  }
+
+  impersonated_pid = current->pid;
+  forked_task = forku_copy_process_execu_version(foster_parent, &args);
+  
+  // Swap the current task back to the original task of the forku_util process
+  this_cpu_write(current_task, original_task);
+  if (!static_branch_likely(&switch_to_cond_stibp)) {
+    asm volatile("nop");
+  }
+
+  local_irq_enable();
+  preempt_enable();
+    
+  printk("runnable_task     : 0x%llx\n", (uint64_t)forked_task);
+  printk("impersonated pid  : %i\n", impersonated_pid);
+  printk("current->pid      : %i\n", current->pid);
+  printk("\n");
+
+  return forked_task;
 }
 
 void forku_schedule_task(struct task_struct *task) {

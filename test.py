@@ -10,3 +10,5 @@ while i < 20:
     time.sleep(1)
     print(f'i is {i}')
 
+print(f'pid  : {os.getpid()}')
+print(f'ppid : {os.getppid()}')

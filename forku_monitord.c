@@ -144,13 +144,15 @@ struct task_struct* take_snapshot(int target_pid) {
 void launch_snapshot(struct snapshot *sn, int foster_parent_pid) {
   // Perform the forku_schedule_task operation on the snapshot
   struct task_struct *runnable_task;
-  struct task_struct *foster_parent;
+  struct task_struct *foster_parent_task;
 
   sym_elevate();
-  runnable_task = forku_task(sn->task);
-  foster_parent = pid_to_task(foster_parent_pid);
+  foster_parent_task = pid_to_task(foster_parent_pid);
+  runnable_task = forku_create_runnable_from_snapshot(sn->task, foster_parent_task);
   
-  forku_populate_task(runnable_task, foster_parent);
+  // Copy std fds
+  for (int fd = 0; fd <= 2; ++fd)
+    copy_task_fd(runnable_task, foster_parent_task, fd);
 
   forku_schedule_task(runnable_task);
   sym_lower();
