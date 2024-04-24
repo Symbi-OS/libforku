@@ -141,7 +141,7 @@ struct task_struct* take_snapshot(int target_pid) {
   return forked_task;
 }
 
-void launch_snapshot(struct snapshot *sn, int foster_parent_pid) {
+void launch_snapshot(struct snapshot *sn, int foster_parent_pid, int *fds, int fd_count) {
   // Perform the forku_schedule_task operation on the snapshot
   struct task_struct *runnable_task;
   struct task_struct *foster_parent_task;
@@ -150,9 +150,11 @@ void launch_snapshot(struct snapshot *sn, int foster_parent_pid) {
   foster_parent_task = pid_to_task(foster_parent_pid);
   runnable_task = forku_create_runnable_from_snapshot(sn->task, foster_parent_task);
   
-  // Copy std fds
-  for (int fd = 0; fd <= 2; ++fd)
-    copy_task_fd(runnable_task, foster_parent_task, fd);
+  // Copy the necessary file descriptors
+  for (int i = 0; i < fd_count; ++i) {
+    copy_task_fd(runnable_task, foster_parent_task, fds[i]);
+    printf("[INFO] Copied file descriptor %i from the foster process into the execu instance\n", fds[i]);
+  }
 
   forku_schedule_task(runnable_task);
   sym_lower();
@@ -434,16 +436,30 @@ static int do_write(const char *path, const char *buffer, size_t size, off_t off
     return -ENOMEM; // Return out of memory error
   }
 
-  // Now we need to convert the buffer of user content that is
-  // being written to a target foster parent process pid.
-  char *endptr;
-  errno = 0; // Clear errno before conversion
-  long foster_parent_pid = strtol(buffer_copy, &endptr, 10);
-
-  // Check if conversion was successful
-  if (errno == ERANGE || foster_parent_pid == 0) {
+  // Parse buffer to get foster parent pid and file descriptor list
+  char *slash_ptr = strchr(buffer_copy, '/');
+  if (!slash_ptr) {
     free(buffer_copy);
-    return -EINVAL; // Conversion error or range error
+    return -EINVAL; // Format error if no slash is found
+  }
+
+  *slash_ptr = '\0';  // Terminate the PID part of the string
+  char *foster_pid_str = buffer_copy;
+  char *fds_str = slash_ptr + 1;
+
+  long foster_parent_pid = strtol(foster_pid_str, NULL, 10);
+  if (foster_parent_pid <= 0) {
+    free(buffer_copy);
+    return -EINVAL; // Invalid PID
+  }
+
+  // Parse the FD list
+  int fds[32] = { 0 };
+  int fd_count = 0;
+  char *token = strtok(fds_str, ",");
+  while (token != NULL && fd_count < 32) {
+    fds[fd_count++] = atoi(token);
+    token = strtok(NULL, ",");
   }
 
   struct timespec ts;
@@ -451,7 +467,7 @@ static int do_write(const char *path, const char *buffer, size_t size, off_t off
   printf("%ld.%09ld\n", ts.tv_sec, ts.tv_nsec);
 
   // Perform the forku_schedule_task operation on the snapshot
-  launch_snapshot(sn, foster_parent_pid);
+  launch_snapshot(sn, foster_parent_pid, fds, fd_count);
   
   free(buffer_copy);
   free(path_copy);
