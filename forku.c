@@ -37,7 +37,7 @@ struct task_struct *pid_to_task(__kernel_pid_t pid) {
 }
 
 extern struct task_struct *forku_copy_process(struct kernel_clone_args *args);
-extern struct task_struct *forku_copy_process_execu_version(struct task_struct *foster_parent, struct kernel_clone_args *args);
+extern int execu_task(struct task_struct *task);
 
 int *read_tid_ptr(struct task_struct* task) {
   uint64_t fsbase, tls_entry;
@@ -97,7 +97,7 @@ struct task_struct* forku_task(struct task_struct* target_task) {
   int                  impersonated_pid;
 
   struct kernel_clone_args args = {
-    .flags      = 0x1200000 | CLONE_PARENT,
+    .flags      = 0x1200000,
     .pidfd      = NULL, // if you want a pidfd, you need to allocate it
     .child_tid  = NULL, // child's TID in the child memory
     .parent_tid = NULL, // child's TID in the parent memory
@@ -156,7 +156,7 @@ struct task_struct *forku_pid(int pid) {
   return forku_task(target_task_struct);
 }
 
-struct task_struct *forku_create_runnable_from_snapshot(struct task_struct *target_task, struct task_struct *foster_parent) {
+void execu_from_snapshot(struct task_struct *sn, struct task_struct *host_task) {
   /*
     Outline:
     original_task = current
@@ -165,19 +165,8 @@ struct task_struct *forku_create_runnable_from_snapshot(struct task_struct *targ
     current = original_task
   */
   struct task_struct*  original_task;
-  struct task_struct*  forked_task;
   int                  impersonated_pid;
 
-  struct kernel_clone_args args = {
-    .flags      = 0x1200000,
-    .pidfd      = NULL, // if you want a pidfd, you need to allocate it
-    .child_tid  = NULL, // child's TID in the child memory
-    .parent_tid = NULL, // child's TID in the parent memory
-    .exit_signal = SIGCHLD,
-  };
-
-  //args.child_tid  = read_tid_ptr(current);
-  
   original_task = current;
   printk("[EXECU]\n");
   printk("current->pid      : %i\n", current->pid);
@@ -187,7 +176,7 @@ struct task_struct *forku_create_runnable_from_snapshot(struct task_struct *targ
   
   // Impersonate the target task, for some reason abstracting this
   // away into its own function causes it to not work anymore.
-  this_cpu_write(current_task, target_task);
+  this_cpu_write(current_task, host_task);
 
   // The following if statement makes the CPU do something that appears like
   // a flush of hidden segment register caches and necessary in order to
@@ -197,7 +186,7 @@ struct task_struct *forku_create_runnable_from_snapshot(struct task_struct *targ
   }
 
   impersonated_pid = current->pid;
-  forked_task = forku_copy_process_execu_version(foster_parent, &args);
+  execu_task(sn);
   
   // Swap the current task back to the original task of the forku_util process
   this_cpu_write(current_task, original_task);
@@ -207,13 +196,10 @@ struct task_struct *forku_create_runnable_from_snapshot(struct task_struct *targ
 
   local_irq_enable();
   preempt_enable();
-    
-  printk("runnable_task     : 0x%llx\n", (uint64_t)forked_task);
+
   printk("impersonated pid  : %i\n", impersonated_pid);
   printk("current->pid      : %i\n", current->pid);
   printk("\n");
-
-  return forked_task;
 }
 
 void forku_schedule_task(struct task_struct *task) {

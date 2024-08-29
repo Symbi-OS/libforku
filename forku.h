@@ -18,7 +18,7 @@ struct task_struct *get_current_task();
 struct task_struct *pid_to_task(int pid);
 struct task_struct *forku_task(struct task_struct* target_task);
 struct task_struct *forku_pid(int pid);
-struct task_struct *forku_create_runnable_from_snapshot(struct task_struct *target_task, struct task_struct *foster_parent);
+void execu_from_snapshot(struct task_struct *sn, struct task_struct *host_task);
 int copy_task_fd(struct task_struct *dst, struct task_struct *src, int fd);
 void forku_schedule_task(struct task_struct *task);
 

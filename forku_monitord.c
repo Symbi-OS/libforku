@@ -141,22 +141,17 @@ struct task_struct* take_snapshot(int target_pid) {
   return forked_task;
 }
 
-void launch_snapshot(struct snapshot *sn, int foster_parent_pid, int *fds, int fd_count) {
-  // Perform the forku_schedule_task operation on the snapshot
-  struct task_struct *runnable_task;
-  struct task_struct *foster_parent_task;
+void launch_snapshot(struct snapshot *sn, int snapshot_host_pid) {
+  struct task_struct *snapshot_host_task;
 
   sym_elevate();
-  foster_parent_task = pid_to_task(foster_parent_pid);
-  runnable_task = forku_create_runnable_from_snapshot(sn->task, foster_parent_task);
   
-  // Copy the necessary file descriptors
-  for (int i = 0; i < fd_count; ++i) {
-    copy_task_fd(runnable_task, foster_parent_task, fds[i]);
-    printf("[INFO] Copied file descriptor %i from the foster process into the execu instance\n", fds[i]);
-  }
+  printf("[EXECU] %i\n", snapshot_host_pid);
+  
+  snapshot_host_task = pid_to_task(snapshot_host_pid);
+  execu_from_snapshot(sn->task, snapshot_host_task);
 
-  forku_schedule_task(runnable_task);
+  forku_schedule_task(snapshot_host_task);
   sym_lower();
 }
 
@@ -436,39 +431,22 @@ static int do_write(const char *path, const char *buffer, size_t size, off_t off
     return -ENOMEM; // Return out of memory error
   }
 
-  // Parse buffer to get foster parent pid and file descriptor list
-  char *slash_ptr = strchr(buffer_copy, '/');
-  if (!slash_ptr) {
-    free(buffer_copy);
-    return -EINVAL; // Format error if no slash is found
-  }
-
-  *slash_ptr = '\0';  // Terminate the PID part of the string
-  char *foster_pid_str = buffer_copy;
-  char *fds_str = slash_ptr + 1;
-
-  long foster_parent_pid = strtol(foster_pid_str, NULL, 10);
-  if (foster_parent_pid <= 0) {
+  long snapshot_host_pid = strtol(buffer_copy, NULL, 10);
+  if (snapshot_host_pid <= 0) {
     free(buffer_copy);
     return -EINVAL; // Invalid PID
   }
 
-  // Parse the FD list
-  int fds[32] = { 0 };
-  int fd_count = 0;
-  char *token = strtok(fds_str, ",");
-  while (token != NULL && fd_count < 32) {
-    fds[fd_count++] = atoi(token);
-    token = strtok(NULL, ",");
-  }
-
   struct timespec ts;
   clock_gettime(CLOCK_REALTIME, &ts);
-  printf("%ld.%09ld\n", ts.tv_sec, ts.tv_nsec);
 
   // Perform the forku_schedule_task operation on the snapshot
-  launch_snapshot(sn, foster_parent_pid, fds, fd_count);
+  launch_snapshot(sn, snapshot_host_pid);
   
+  FILE* log = fopen("start_times.log", "a");
+  fprintf(log, "%ld.%09ld\n", ts.tv_sec, ts.tv_nsec);
+  fclose(log);
+
   free(buffer_copy);
   free(path_copy);
   return size;

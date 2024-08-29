@@ -30,6 +30,7 @@ int main() {
 
     if (g_signaled) {
       g_signaled = 0;
+      exit(0);
       
       /*  WORKS  */
       // buf[sizeof(buf) - 1] = 0xff;
@@ -50,12 +51,13 @@ int main() {
 
       /*  DOESN'T WORK  */
       /*  Suspicion: %fs relative addressing is the problem   */
-      char* m = (char*)malloc(TEST_MALLOC_SIZE);
+
+      /*char* m = (char*)malloc(TEST_MALLOC_SIZE);
       for (size_t i = 0; i < TEST_MALLOC_SIZE - 1; ++i) {
         m[i] = 0xff;
       }
 
-      printf("Allocated %lld MB\n", TEST_MALLOC_SIZE / 1024 / 1024);
+      printf("Allocated %lld MB\n", TEST_MALLOC_SIZE / 1024 / 1024);*/
     }
   }
 
