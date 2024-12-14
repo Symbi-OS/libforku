@@ -48,6 +48,16 @@ The primary function for process restoration, `execu_task` takes a snapshot’s 
 `current` into the snapshot. This is achieved by installing the snapshot’s page table and memory mappings, and updating the thread and register state to
 match the snapshot.
 
+### Userspace Changes
+
+The `forku_util.c` file encapsulates a userspace utility designed to interact directly with the forku library and kernel functions. It provides a
+lightweight interface for partially forking a target process, effectively capturing its state and enabling further manipulation. The purpose of this
+utility is to give users or higher-level systems a way to directly invoke the forku functionality without needing to interact with kernel-level code directly.
+
+When run, `forku_util` takes a target process's PID as input, partially forks the process using the `forku_pid()` library function, and prepares the forked task for further operations. It employs dynamic privilege escalation (`sym_elevate()` and `sym_lower()`) to execute privileged operations securely. The resulting forked task is a copy of the target process, with its state encapsulated and ready for further snapshotting or scheduling. This utility includes placeholders for extending functionality, such as saving snapshots or cleaning up forked task memory, which will need to be addressed as the project evolves. It is primarily intended for debugging, experimentation, or providing a basis for higher-level operations like snapshot registration through the forku_monitord daemon.
+
+The `forku_monitord.c` file acts as the monitor daemon mentioned earlier. It manages a FUSE-powered filesystem, exposing process snapshots as accessible files. This daemon handles requests to create snapshots, retrieve their metadata, and manage the lifecycle of these snapshots. It maintains an internal registry of PIDs and their associated snapshots, ensuring snapshots are tracked and managed efficiently. When a user creates a new snapshot, the daemon interfaces with the forku library to perform the necessary kernel-level operations, such as forking a process or registering its state. These snapshots can then be accessed as files within the FUSE filesystem, making them easy to work with for users or other system components.
+
 ## Usage: `forku`
 
 1) Open a new shell and `make run_forku_monitor` to launch the _FUSE_ forku monitor process
