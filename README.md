@@ -31,6 +31,23 @@ complexity is expected to be streamlined in future iterations.
 
 ### Kernel Changes
 
+`forku_copy_process`:
+This function mirrors the behavior of the standard `copy_process` but includes additional logic to save the `gs` and `fs` base values. This prevents
+corruption in the target process since the current pointer is impersonated by the caller (the monitor daemon) during the snapshot operation.
+
+`forku_copy_process_execu_version`:
+Similar to `forku_copy_process`, this function creates a process copy, but with one critical difference: the environment data is sourced from the `foster_parent`
+task struct parameter, enabling the reuse of an existing process context for snapshot restoration.
+
+`forku_copy_thread`:
+This function replicates the functionality of `copy_thread` while omitting the call to `save_current_fsgs()`. This omission is necessary to avoid corruption
+caused by the impersonated `current` value when creating a new thread context.
+
+`execu_task`:
+The primary function for process restoration, `execu_task` takes a snapshot’s `task_struct*` as input. Its purpose is to "exec" the process referenced by
+`current` into the snapshot. This is achieved by installing the snapshot’s page table and memory mappings, and updating the thread and register state to
+match the snapshot.
+
 ## Usage: `forku`
 
 1) Open a new shell and `make run_forku_monitor` to launch the _FUSE_ forku monitor process
